@@ -16,22 +16,20 @@ class OpportunityType(str, Enum):
 
 
 class StudentProfile(BaseModel):
-    """Structured student profile"""
     name: str = ""
-    degree: str = ""  # e.g., "BS Computer Science"
+    degree: str = ""
     semester: int = 0
     cgpa: float = 0.0
     skills: List[str] = []
     interests: List[str] = []
     preferred_types: List[OpportunityType] = []
     financial_need: bool = False
-    location_preference: List[str] = []  # e.g., ["remote", "Lahore", "USA"]
+    location_preference: List[str] = []
     past_experience: List[str] = []
     graduation_year: int = 0
 
 
 class ExtractedOpportunity(BaseModel):
-    """Opportunity extracted from email"""
     id: str
     source_email_subject: str
     opportunity_type: OpportunityType
@@ -45,39 +43,41 @@ class ExtractedOpportunity(BaseModel):
     contact_info: Optional[str] = None
     location: Optional[str] = None
     is_remote: bool = False
-    confidence: float = 0.0  # How confident we are this is a real opportunity
+    confidence: float = 0.0
     raw_content: str
 
 
 class RankedOpportunity(ExtractedOpportunity):
-    """Opportunity with ranking info"""
     rank: int = 0
     score: float = 0.0
-    urgency: str = "low"  # low, medium, high, critical
+    urgency: str = "low"
     profile_match_reasons: List[str] = []
     missing_requirements: List[str] = []
     action_items: List[str] = []
 
 
 class ParseRequest(BaseModel):
-    """Request to parse emails"""
-    emails: List[dict]  # [{subject, body}]
+    emails: List[dict]
 
 
 class RankRequest(BaseModel):
-    """Request to rank opportunities"""
     opportunities: List[ExtractedOpportunity]
     student_profile: StudentProfile
 
 
+# FIX: New unified request body for /api/scan
+# FastAPI cannot handle two separate body params — this wraps both into one model
+class ScanRequest(BaseModel):
+    emails: List[dict]
+    student_profile: StudentProfile
+
+
 class ParseResponse(BaseModel):
-    """Response from parsing emails"""
     opportunities: List[ExtractedOpportunity]
     total_emails: int
     detected_opportunities: int
 
 
 class RankResponse(BaseModel):
-    """Response from ranking"""
     ranked_opportunities: List[RankedOpportunity]
     summary: str

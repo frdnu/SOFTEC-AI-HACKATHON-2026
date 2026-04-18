@@ -2,7 +2,7 @@
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List
+from typing import List, Optional  # FIX: use Optional from typing (not X | Y which needs Python 3.10+)
 
 from models import (
     StudentProfile,
@@ -12,6 +12,7 @@ from models import (
     RankRequest,
     ParseResponse,
     RankResponse,
+    ScanRequest,      # FIX: import the new unified ScanRequest
     OpportunityType,
 )
 from parser import EmailParser
@@ -23,7 +24,6 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Enable CORS for frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -32,40 +32,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory storage (for demo)
 opportunities_store: List[ExtractedOpportunity] = []
-student_profile: StudentProfile | None = None
+student_profile: Optional[StudentProfile] = None  # FIX: was StudentProfile | None (Python 3.10+ only)
 
 
 @app.get("/")
 async def root():
-    """Health check"""
     return {
         "service": "SOFTEC AI Hackathon 2026 - Opportunity Scanner",
         "status": "running",
-        "endpoints": ["/api/parse-emails", "/api/rank", "/api/opportunities"],
+        "endpoints": ["/api/parse-emails", "/api/rank", "/api/opportunities", "/api/scan", "/api/profile"],
     }
 
 
 @app.post("/api/parse-emails", response_model=ParseResponse)
 async def parse_emails(request: ParseRequest):
-    """
-    Parse opportunity emails and extract structured data.
-
-    Accepts a list of emails with subject and body,
-    returns extracted opportunities with deadlines, eligibility, etc.
-    """
+    """Parse opportunity emails and extract structured data."""
     global opportunities_store
-
     if not request.emails:
         raise HTTPException(status_code=400, detail="No emails provided")
-
     parser = EmailParser()
     opportunities = parser.parse_emails(request.emails)
-
-    # Store for later ranking
     opportunities_store = opportunities
-
     return ParseResponse(
         opportunities=opportunities,
         total_emails=len(request.emails),
@@ -75,28 +63,18 @@ async def parse_emails(request: ParseRequest):
 
 @app.post("/api/rank", response_model=RankResponse)
 async def rank_opportunities(request: RankRequest):
-    """
-    Rank opportunities based on student profile.
-
-    Evaluates each opportunity against the student profile
-    and returns a prioritized list with scores and action items.
-    """
+    """Rank opportunities based on student profile."""
     if not request.opportunities:
         raise HTTPException(status_code=400, detail="No opportunities to rank")
-
     engine = RankingEngine(request.student_profile)
     ranked = engine.rank(request.opportunities)
     summary = engine.generate_summary(ranked)
-
-    return RankResponse(
-        ranked_opportunities=ranked,
-        summary=summary,
-    )
+    return RankResponse(ranked_opportunities=ranked, summary=summary)
 
 
 @app.get("/api/opportunities", response_model=List[ExtractedOpportunity])
 async def get_opportunities():
-    """Get all parsed opportunities from last parse request"""
+    """Get all parsed opportunities from last parse request."""
     if not opportunities_store:
         raise HTTPException(status_code=404, detail="No opportunities parsed yet")
     return opportunities_store
@@ -104,7 +82,7 @@ async def get_opportunities():
 
 @app.post("/api/profile")
 async def set_profile(profile: StudentProfile):
-    """Set the student profile for ranking"""
+    """Set the student profile for ranking."""
     global student_profile
     student_profile = profile
     return {"status": "Profile saved", "profile": profile}
@@ -112,34 +90,40 @@ async def set_profile(profile: StudentProfile):
 
 @app.get("/api/profile")
 async def get_profile():
-    """Get current student profile"""
+    """Get current student profile."""
     if not student_profile:
         raise HTTPException(status_code=404, detail="No profile set")
     return student_profile
 
 
-# Demo endpoint - parse and rank in one call
+# FIX: /api/scan previously took two separate body params (ParseRequest + StudentProfile)
+# which FastAPI cannot handle — it caused 422 Unprocessable Entity on every call.
+# Now uses a single ScanRequest model that wraps both.
 @app.post("/api/scan", response_model=RankResponse)
-async def scan_emails(request: ParseRequest, profile: StudentProfile):
+async def scan_emails(request: ScanRequest):
     """
-    Complete scan pipeline: parse emails and rank by profile.
+    Full pipeline: parse emails + rank in one request. Main demo endpoint.
 
-    This is the main endpoint for the demo - uploads emails and profile,
-    gets back ranked opportunities with action items.
+    Body:
+    {
+        "emails": [{"subject": "...", "body": "..."}],
+        "student_profile": { "cgpa": 3.5, "skills": ["Python"], ... }
+    }
     """
-    # Parse emails
+    if not request.emails:
+        raise HTTPException(status_code=400, detail="No emails provided")
+
     parser = EmailParser()
     opportunities = parser.parse_emails(request.emails)
 
-    # Rank opportunities
-    engine = RankingEngine(profile)
+    if not opportunities:
+        raise HTTPException(status_code=404, detail="No real opportunities detected in provided emails")
+
+    engine = RankingEngine(request.student_profile)
     ranked = engine.rank(opportunities)
     summary = engine.generate_summary(ranked)
 
-    return RankResponse(
-        ranked_opportunities=ranked,
-        summary=summary,
-    )
+    return RankResponse(ranked_opportunities=ranked, summary=summary)
 
 
 if __name__ == "__main__":

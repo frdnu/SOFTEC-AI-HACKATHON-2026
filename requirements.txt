@@ -1,9 +1,6 @@
-<<<<<<< HEAD
-streamlit==1.32.0
-openai==1.12.0
-=======
 fastapi
 uvicorn
 pydantic
 python-multipart
->>>>>>> master
+streamlit==1.32.0
+openai==1.12.0
