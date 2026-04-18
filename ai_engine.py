@@ -45,7 +45,7 @@ def extract_opportunity_data(email_text):
         return json.loads(response.choices[0].message.content)
     except Exception as e:
         print(f"Extraction Error: {e}")
-        return {"is_opportunity": false}
+        return {"is_opportunity": False}
 
 
 def calculate_match_score(opportunity_json, student_profile):
@@ -93,3 +93,49 @@ def calculate_match_score(opportunity_json, student_profile):
     final_score = min(100, max(0, score))
     
     return final_score, urgency
+
+
+def analyze_emails(emails_input, student_profile):
+    """
+    Main orchestrator: parses emails, extracts opportunities, scores them,
+    and returns ranked results with evidence.
+    """
+    # Split emails by separator
+    raw_emails = [e.strip() for e in emails_input.split('---') if e.strip()]
+
+    results = []
+
+    for idx, email_text in enumerate(raw_emails):
+        # Step 1: Extract opportunity data
+        opp_data = extract_opportunity_data(email_text)
+
+        if not opp_data.get("is_opportunity", False):
+            continue  # Skip non-opportunities
+
+        # Step 2: Calculate match score
+        match_score, urgency = calculate_match_score(opp_data, student_profile)
+
+        # Build result entry
+        results.append({
+            "rank": 0,  # Will be set after sorting
+            "title": opp_data.get("title", "Untitled Opportunity"),
+            "type": opp_data.get("type", "Unknown"),
+            "deadline": opp_data.get("deadline", "No deadline"),
+            "urgency": urgency,
+            "match_score": match_score,
+            "why_matters": opp_data.get("why_matters", "Valuable opportunity for your profile."),
+            "requirements": opp_data.get("requirements", []),
+            "next_steps": opp_data.get("next_steps", "Check original email for details."),
+            "is_opportunity": True,
+            "days_until_deadline": opp_data.get("days_until_deadline", 999)
+        })
+
+    # Sort by match_score descending, then by urgency (HIGH > MEDIUM > LOW)
+    urgency_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+    results.sort(key=lambda x: (-x["match_score"], urgency_order.get(x["urgency"], 2)))
+
+    # Assign ranks
+    for i, r in enumerate(results):
+        r["rank"] = i + 1
+
+    return results

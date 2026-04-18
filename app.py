@@ -1,4 +1,5 @@
 import streamlit as st
+from ai_engine import analyze_emails
 
 st.set_page_config(
     page_title="Opportunity Inbox Copilot",
@@ -91,55 +92,26 @@ with right_col:
             st.error("❌ Please paste at least one email first!")
         else:
             with st.spinner("🤖 AI is reading your emails..."):
-                
-                # =============================================
-                # DANIYAL PLUGS IN HERE
-                # Call your analyze function and get results
-                # results = analyze_emails(emails_input, profile)
-                # =============================================
-                
-                # PLACEHOLDER RESULTS — Daniyal replaces this
-                results = [
-                    {
-                        "rank": 1,
-                        "title": "Google Summer Internship 2026",
-                        "type": "Internship",
-                        "deadline": "May 15, 2026",
-                        "urgency": "HIGH",
-                        "match_score": 92,
-                        "why_matters": "Perfect match for your CS background and Python skills.",
-                        "requirements": ["CV", "Cover Letter", "Transcript"],
-                        "next_steps": "Apply at careers.google.com before May 15",
-                        "is_opportunity": True
-                    },
-                    {
-                        "rank": 2,
-                        "title": "DAAD Scholarship 2026",
-                        "type": "Scholarship",
-                        "deadline": "June 30, 2026",
-                        "urgency": "MEDIUM",
-                        "match_score": 78,
-                        "why_matters": "Fully funded MS in Germany. Matches your financial need.",
-                        "requirements": ["IELTS", "Recommendation Letters", "SOP"],
-                        "next_steps": "Register at daad.de and prepare documents",
-                        "is_opportunity": True
-                    },
-                    {
-                        "rank": 3,
-                        "title": "ICPC Programming Contest",
-                        "type": "Competition",
-                        "deadline": "May 30, 2026",
-                        "urgency": "MEDIUM",
-                        "match_score": 71,
-                        "why_matters": "Boosts your profile. You have prior ICPC experience.",
-                        "requirements": ["Team of 3", "University Registration"],
-                        "next_steps": "Form a team and register at icpc.global",
-                        "is_opportunity": True
-                    },
-                ]
-                
-                st.success(f"✅ Found **{len(results)} real opportunities** in your inbox!")
-                st.markdown("---")
+                # Build student profile from form inputs
+                profile = {
+                    "degree": degree,
+                    "semester": semester,
+                    "cgpa": cgpa,
+                    "program": program,
+                    "skills": skills,
+                    "opp_types": opp_types,
+                    "financial_need": financial_need,
+                    "location": location,
+                    "experience": experience
+                }
+
+                # Call the AI engine
+                results = analyze_emails(emails_input, profile)
+
+                if not results:
+                    st.warning("⚠️ No valid opportunities found in your emails. They might be spam or non-opportunity content.")
+                else:
+                    st.markdown("---")
                 
                 for r in results:
                     rank_class = f"rank-{r['rank']}" if r['rank'] <= 3 else "card"
