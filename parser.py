@@ -14,15 +14,27 @@ class EmailParser:
         OpportunityType.INTERNSHIP: ["internship", "intern", "industrial training", "summer intern"],
         OpportunityType.COMPETITION: ["competition", "contest", "hackathon", "challenge", "award"],
         OpportunityType.FELLOWSHIP: ["fellowship", "research fellow", "visiting fellow"],
-        OpportunityType.ADMISSION: ["admission", "apply now", "enrollment", "intake", "register"],
         OpportunityType.WORKSHOP: ["workshop", "seminar", "training", "bootcamp", "course"],
         OpportunityType.CONFERENCE: ["conference", "symposium", "colloquium", "presentation"],
+        OpportunityType.ADMISSION: ["admission", "apply now", "enrollment", "intake"],
     }
+
+    # Order matters - check specific types before general ones
+    TYPE_PRIORITY = [
+        OpportunityType.SCHOLARSHIP,
+        OpportunityType.INTERNSHIP,
+        OpportunityType.FELLOWSHIP,
+        OpportunityType.COMPETITION,
+        OpportunityType.WORKSHOP,
+        OpportunityType.CONFERENCE,
+        OpportunityType.ADMISSION,
+    ]
 
     # Deadline patterns
     DEADLINE_PATTERNS = [
-        r"(?:deadline|due date|apply by|closing date)[:\s]+([A-Za-z0-9,]+)",
-        r"(?:before|by|until)\s+([A-Za-z0-9,\s]+?)(?:\.|$|\n)",
+        r"(?:deadline|due date|apply by|closing date)[:\s]+([A-Za-z]+\s+\d{1,2},?\s+\d{4})",
+        r"(?:deadline|due date|apply by|closing date)[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
+        r"(?:before|by|until)\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})",
         r"([A-Za-z]+\s+\d{1,2},?\s+\d{4})",
         r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
     ]
@@ -63,13 +75,21 @@ class EmailParser:
         return self.opportunities
 
     def _detect_type(self, content: str) -> Optional[OpportunityType]:
-        """Detect the type of opportunity"""
+        """Detect the type of opportunity (priority-based)"""
         content_lower = content.lower()
+        found_types = []
 
         for opp_type, keywords in self.TYPE_KEYWORDS.items():
             for keyword in keywords:
                 if keyword in content_lower:
-                    return opp_type
+                    found_types.append(opp_type)
+                    break
+
+        # Return highest priority type found
+        for opp_type in self.TYPE_PRIORITY:
+            if opp_type in found_types:
+                return opp_type
+
         return None
 
     def _is_opportunity(self, content: str) -> bool:
