@@ -3,10 +3,9 @@ import os
 from openai import OpenAI
 from dotenv import load_dotenv
 
-load_dotenv(override=True) # hamesha new key jo bhi doon vou use kro bhai
+load_dotenv(override=True)
 
 print("🔑 GROQ_API_KEY loaded:", "YES" if os.environ.get("GROQ_API_KEY") else "NO - .env not loading!")
-print("Key starts with:", os.environ.get("GROQ_API_KEY")[:10] + "..." if os.environ.get("GROQ_API_KEY") else "None")
 
 client = OpenAI(
     api_key=os.environ.get("GROQ_API_KEY"),
@@ -14,29 +13,41 @@ client = OpenAI(
 )
 
 def extract_opportunity_data(email_text):
+    # Reject obvious jibberish/short inputs immediately
+    if len(email_text.strip()) < 50:
+        return {"is_opportunity": False}
+
     system_prompt = """
-    You are a ruthless AI data extractor. Read the provided email.
-    If it is NOT a genuine academic/professional opportunity (e.g., spam, fluff, rejection, newsletter), 
-    return EXACTLY: {"is_opportunity": false}
-    
-    If it IS an opportunity, extract the details and return JSON matching this exact structure:
-    {
-        "is_opportunity": true,
-        "title": "Clear Name of Opportunity",
-        "type": "Internship|Scholarship|Fellowship|Competition|Research|Admission",
-        "deadline": "Month DD, YYYY",
-        "days_until_deadline": integer (estimate based on today being April 18, 2026, or 999 if none),
-        "requirements": ["req1", "req2", "req3"],
-        "next_steps": "Short actionable step with URL or contact if available",
-        "why_matters": "One punchy sentence on why this is highly valuable",
-        "required_cgpa": float (or 0.0 if not mentioned),
-        "required_skills": ["skill1", "skill2"]
-    }
-    """
-    
+You are a strict AI classifier for student opportunity emails.
+
+FIRST: Decide if this is a REAL opportunity. It must have ALL of these:
+- A clear opportunity type (internship, scholarship, fellowship, competition, workshop, admission)
+- Some eligibility or target audience mentioned
+- At least one of: deadline, application link, contact info, or benefits
+
+If ANY of these are missing, return EXACTLY: {"is_opportunity": false}
+Also return {"is_opportunity": false} for: spam, jibberish, random text, promotions, newsletters, rejection emails, general announcements.
+
+ONLY if it passes all checks, return this exact JSON:
+{
+    "is_opportunity": true,
+    "title": "Clear Name of Opportunity",
+    "type": "Internship|Scholarship|Fellowship|Competition|Workshop|Admission",
+    "deadline": "Month DD, YYYY or null",
+    "days_until_deadline": integer (days from April 18 2026, or 999 if no deadline),
+    "requirements": ["req1", "req2", "req3"],
+    "next_steps": "Short actionable step with URL or contact if available",
+    "why_matters": "One punchy sentence on why this is highly valuable",
+    "required_cgpa": float (or 0.0 if not mentioned),
+    "required_skills": ["skill1", "skill2"]
+}
+
+Return ONLY valid JSON. No markdown, no explanation.
+"""
+
     try:
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant", # removed deprecated model to new and improved model
+            model="llama-3.1-8b-instant",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Email text:\n{email_text}"}
@@ -54,27 +65,34 @@ def calculate_match_score(opportunity_json, student_profile):
     if not opportunity_json.get("is_opportunity"):
         return 0, "LOW"
 
-    score = 50  # Base baseline score for being a valid opportunity
-    
-    # 1. CGPA Hard Check
+    score = 40  # Lower base score — must EARN the rest
+
+    # 1. CGPA Check
     req_cgpa = opportunity_json.get('required_cgpa', 0.0)
-    if student_profile.get('cgpa', 0.0) >= req_cgpa:
-        score += 15
+    if req_cgpa > 0:
+        if student_profile.get('cgpa', 0.0) >= req_cgpa:
+            score += 20
+        else:
+            score -= 25  # Hard penalty for not meeting requirement
     else:
-        score -= 30
-        
+        score += 10  # No CGPA requirement = small bonus
+
     # 2. Opportunity Type Fit
-    if opportunity_json.get('type') in student_profile.get('opp_types', []):
-        score += 15
-        
+    opp_type = opportunity_json.get('type', '').lower()
+    preferred = [t.lower() for t in student_profile.get('opp_types', [])]
+    if opp_type in preferred:
+        # Higher bonus if it's their TOP preference
+        idx = preferred.index(opp_type) if opp_type in preferred else 99
+        score += max(5, 20 - idx * 5)
+
     # 3. Skills Match
     profile_skills = {s.strip().lower() for s in student_profile.get('skills', '').split(',')}
     target_skills = {s.lower() for s in opportunity_json.get('required_skills', [])}
     overlap = profile_skills.intersection(target_skills)
     if overlap:
-        score += min(10, len(overlap) * 5)
-        
-    # 4. Urgency Calculation
+        score += min(15, len(overlap) * 5)
+
+    # 4. Urgency bonus
     days = opportunity_json.get('days_until_deadline', 999)
     if days <= 7:
         score += 10
@@ -84,33 +102,16 @@ def calculate_match_score(opportunity_json, student_profile):
         urgency = "MEDIUM"
     else:
         urgency = "LOW"
-        
-    final_score = min(100, max(0, score))
-    return final_score, urgency
 
+    # 5. Completeness bonus — well-structured emails score higher
+    has_deadline = opportunity_json.get('deadline') not in [None, "null", ""]
+    has_link = "http" in opportunity_json.get('next_steps', '')
+    if has_deadline:
+        score += 5
+    if has_link:
+        score += 5
 
-# ==================== MAIN TEST ====================
-if __name__ == "__main__":
-    test_profile = {
-        "cgpa": 3.2,
-        "opp_types": ["Internship", "Scholarship"],
-        "skills": "Python, Web Dev, C++"
-    }
-    
-    test_email = """
-    We are excited to announce the GDG Summer Internship for 2026. 
-    We are looking for students with a CGPA of 3.0 or higher who know Python and Web Dev.
-    Deadline is April 25, 2026. Apply at gdg.umt/apply.
-    """
-    
-    print("Extracting...")
-    extracted_data = extract_opportunity_data(test_email)
-    print(json.dumps(extracted_data, indent=2))
-    
-    if extracted_data.get("is_opportunity"):
-        print("\nScoring...")
-        score, urgency = calculate_match_score(extracted_data, test_profile)
-        print(f"Match Score: {score}% | Urgency: {urgency}")
+    return min(100, max(0, score)), urgency
 
 
 def analyze_emails(emails_input, student_profile):
@@ -145,3 +146,21 @@ def analyze_emails(emails_input, student_profile):
         r["rank"] = i + 1
 
     return results
+
+
+if __name__ == "__main__":
+    test_profile = {
+        "cgpa": 3.2,
+        "opp_types": ["Internship", "Scholarship"],
+        "skills": "Python, Web Dev, C++"
+    }
+    test_email = """
+    We are excited to announce the GDG Summer Internship for 2026. 
+    We are looking for students with a CGPA of 3.0 or higher who know Python and Web Dev.
+    Deadline is April 25, 2026. Apply at gdg.umt/apply.
+    """
+    extracted_data = extract_opportunity_data(test_email)
+    print(json.dumps(extracted_data, indent=2))
+    if extracted_data.get("is_opportunity"):
+        score, urgency = calculate_match_score(extracted_data, test_profile)
+        print(f"Match Score: {score}% | Urgency: {urgency}")
